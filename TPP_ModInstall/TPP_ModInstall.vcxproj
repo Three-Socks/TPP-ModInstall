@@ -37,6 +37,7 @@
     <PlatformToolset>v120</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
+    <CLRSupport>false</CLRSupport>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -147,9 +148,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="city.cc" />
     <ClCompile Include="TPP_ModInstall.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="city.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="SimpleIni.h" />
   </ItemGroup>

@@ -2,9 +2,11 @@
 #include <tchar.h>
 
 #include <string>
+#include <vector>
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 
 #include <conio.h>
 #include <windows.h>
@@ -12,6 +14,9 @@
 #include "resource.h"
 
 #include "SimpleIni.h"
+
+// CityHash v1.0.3
+#include "city.h"
 
 using namespace std;
 
@@ -34,7 +39,14 @@ void clear_screen() {
 	cout << "TPP_ModInstall v1.0\n\n";
 }
 
-int tpp_search_and_replace(string Tpp_mod, string Tpp, string Tpp_find, string Tpp_replace)
+void pause()
+{
+	cout << "\nPress any key to continue..." << endl;
+	_getch();
+}
+
+
+int mI_search_and_replace(string Tpp_mod, string Tpp, string Tpp_find, string Tpp_replace)
 {
 	ifstream Tppin(Tpp);
 	ostringstream Tpp_out_stream;
@@ -63,8 +75,9 @@ int tpp_search_and_replace(string Tpp_mod, string Tpp, string Tpp_find, string T
 		if (Tpp_mod_pos != string::npos)
 		{
 			clear_screen();
-			cerr << "Looks like " << Tpp << " file patch was already made, skipping..." << "\n";
-			Sleep(2000);
+			cerr << "Looks like " << Tpp_mod << " " << Tpp << " file patch was already made, skipping..." << "\n";
+			pause();
+			//Sleep(2000);
 		}
 		else
 		{
@@ -111,10 +124,17 @@ void mI_load_resource(int res, string out_file_name)
 	f.close();
 }
 
-void pause()
+string mI_mod_name_safe(string mod_name)
 {
-	cout << "\nPress any key to continue..." << endl;
-	_getch();
+	string mod_name_safe_slash;
+	string mod_name_safe_dot;
+	string mod_name_safe;
+
+	remove_copy(mod_name.begin(), mod_name.end(), back_inserter(mod_name_safe_slash), '/');
+	remove_copy(mod_name_safe_slash.begin(), mod_name_safe_slash.end(), back_inserter(mod_name_safe_dot), '\\');
+	remove_copy(mod_name_safe_dot.begin(), mod_name_safe_dot.end(), back_inserter(mod_name_safe), '.');
+
+	return mod_name_safe;
 }
 
 int main()
@@ -142,7 +162,7 @@ int main()
 	mI_load_resource(IDR_RCDATA2, "zlib1.dll");
 
 	// Load ini and error check.
-	CSimpleIniA ini(false, false, false);
+	CSimpleIniA ini(false, true, false);
 	SI_Error rc = ini.LoadFile("TPP_ModInstall.ini");
 
 	if (rc < 0)
@@ -171,35 +191,13 @@ int main()
 		return 1;
 	}
 
-	string Tpp_mod_ini = ini.GetValue("config", "tpp_install_mod_name");
+	// mod lua
+	string Tpp_main_mod_name;
+	vector<string> tpp_install_mod_names;
+	vector<string> tpp_install_mod_lua;
 
-	if (Tpp_mod_ini.empty())
-	{
-		cerr << "tpp_install_mod_name is empty in TPP_ModInstall.ini." << "\n";
-		return 1;
-	}
-
-	string Tpp_mod_safe;
-	string Tpp_mod;
-
-	remove_copy(Tpp_mod_ini.begin(), Tpp_mod_ini.end(), back_inserter(Tpp_mod_safe), '/');
-	remove_copy(Tpp_mod_safe.begin(), Tpp_mod_safe.end(), back_inserter(Tpp_mod), '\\');
-
-	ostringstream Tpp_mod_lua_stream;
-	Tpp_mod_lua_stream << Tpp_mod << ".lua";
-	string Tpp_mod_lua = Tpp_mod_lua_stream.str();
-
-	bool Tpp_mod_notfound = !ifstream(Tpp_mod_lua.c_str());
-	if (Tpp_mod_notfound)
-	{
-		cerr << Tpp_mod_lua << " was not found. Make sure you move all files and run this file in the\nC:\\Program Files (x86)\\Steam\\steamapps\\common\\MGS_TPP\\master\\0\\ folder." << "\n";
-		perror(nullptr);
-		return 1;
-	}
-
-
+	// Create dictionary.txt
 	ofstream resource_dict("dictionary.txt");
-
 	if (!resource_dict)
 	{
 		cerr << "Unable to create dictionary.txt" << "\n";
@@ -207,11 +205,81 @@ int main()
 		return 1;
 	}
 
-	resource_dict << "/Assets/tpp/script/lib/" << Tpp_mod << "\n/Assets/tpp/script/lib/Tpp\n/Assets/tpp/script/lib/TppMain";
+	// get all values of tpp_install_mod_name
+	CSimpleIniA::TNamesDepend values;
+	ini.GetAllValues("config", "tpp_install_mod_lua", values);
+
+	values.sort(CSimpleIniA::Entry::LoadOrder());
+
+	CSimpleIniA::TNamesDepend::const_iterator i;
+	int i_num = 0;
+	for (i = values.begin(); i != values.end(); ++i)
+	{
+		string Tpp_mods_name = mI_mod_name_safe(i->pItem);
+
+		if (i_num == 0)
+			Tpp_main_mod_name = Tpp_mods_name;
+
+		ostringstream Tpp_mods_lua_stream;
+		Tpp_mods_lua_stream << Tpp_mods_name << ".lua";
+		string Tpp_mods_lua = Tpp_mods_lua_stream.str();
+
+		bool Tpp_mod_notfound = !ifstream(Tpp_mods_lua.c_str());
+		if (Tpp_mod_notfound)
+		{
+			cerr << Tpp_mods_lua << " was not found. Make sure you move all files and run this file in the\nC:\\Program Files (x86)\\Steam\\steamapps\\common\\MGS_TPP\\master\\0\\ folder." << "\n";
+			perror(nullptr);
+			return 1;
+		}
+
+		// Add mod name and lua to string array
+		tpp_install_mod_names.push_back(Tpp_mods_name);
+		tpp_install_mod_lua.push_back(Tpp_mods_lua);
+
+		// Add mod name to dictionary.txt
+		resource_dict << "/Assets/tpp/script/lib/" << Tpp_mods_name << "\n";
+
+		// Clear stringstream
+		Tpp_mods_lua_stream.str(string());
+		Tpp_mods_lua_stream.clear();
+
+		i_num++;
+	}
+
+	// Close dictionary.txt
+	resource_dict << "/Assets/tpp/script/lib/Tpp\n/Assets/tpp/script/lib/TppMain";
 	resource_dict.close();
 
+	/*ostringstream Tpp_backup_stream;
+	Tpp_backup_stream << "backup-" << Tpp_main_mod_name;
+	string Tpp_backup = Tpp_backup_stream.str();
+
+	size_t newsize_backup = strlen(Tpp_backup.c_str()) + 1;
+	wchar_t * wcstring_backup = new wchar_t[newsize_backup];
+	size_t convertedChars_backup = 0;
+	mbstowcs_s(&convertedChars_backup, wcstring_backup, newsize_backup, Tpp_backup.c_str(), _TRUNCATE);
+
+	cout << "Backing up " << Tpp_data << " ..." << "\n\n";
+
+	CreateDirectory(wcstring_backup, NULL);
+
+	Tpp_backup_stream << "\\" << Tpp_data;
+
+	ifstream src_bk(Tpp_data, ios::binary);
+	ofstream dst_bk(Tpp_backup_stream.str(), ios::binary);
+
+	dst_bk << src_bk.rdbuf();
+
+	bool Tpp_copied_bk_notfound = !ifstream(Tpp_backup_stream.str().c_str());
+	if (Tpp_copied_bk_notfound)
+	{
+		cerr << Tpp_data << " could not be backed up." << "\n";
+		perror(nullptr);
+		pause();
+	}*/
+
 	// Extract data file.
-	cerr << "Extracting " << Tpp_data << "..." << "\n\n";
+	cout << "Extracting " << Tpp_data << "..." << "\n\n";
 	Sleep(2000);
 
 	STARTUPINFO info = { sizeof(info) };
@@ -234,67 +302,118 @@ int main()
 	}
 	else
 	{
-		cerr << "Cannot create process MGSV_QAR_Tool.exe" << "\n";
-		perror(nullptr);
+		perror("Cannot create process MGSV_QAR_Tool.exe");
 		return 1;
 	}
 
 	cout << "\n";
 
-	// Patch tpp lib lua.
+	// Copy & patch tpp lib lua.
 	cout << "Copying and patching files..." << "\n\n";
 	Sleep(2000);
 
-	string Tpp = "\\Assets\\tpp\\script\\lib\\Tpp.lua";
+	// Check MGSV_QAR_Tool created an inf file and open it.
+	ostringstream Tpp_inf_stream;
+	Tpp_inf_stream << "0" << Tpp_data_ini << ".inf";
+	string Tpp_inf = Tpp_inf_stream.str();
 
-	ostringstream Tpp_file_stream;
-	Tpp_file_stream << "0" << Tpp_data_ini << Tpp;
-	string Tpp_file_path = Tpp_file_stream.str();
-
-	string Tpp_find = "\"/Assets/tpp/script/lib/TppMbFreeDemo.lua\"";
-	ostringstream Tpp_replace_stream;
-	Tpp_replace_stream << "\"/Assets/tpp/script/lib/TppMbFreeDemo.lua\",\"/Assets/tpp/script/lib/" << Tpp_mod << ".lua\"";
-	string Tpp_replace = Tpp_replace_stream.str();
-
-	if (tpp_search_and_replace(Tpp_mod, Tpp_file_path, Tpp_find, Tpp_replace))
+	ofstream Tpp_inf_out;
+	Tpp_inf_out.open(Tpp_inf, ios::app);
+	if (!Tpp_inf_out)
 	{
-		perror(nullptr);
+		cerr << Tpp_inf << " was not found. Make sure you move all files and run this file in the\nC:\\Program Files (x86)\\Steam\\steamapps\\common\\MGS_TPP\\master\\0\\ folder." << "\n";
 		return 1;
 	}
 
-	string TppMain = "\\Assets\\tpp\\script\\lib\\TppMain.lua";
-
-	ostringstream TppMain_file_stream;
-	TppMain_file_stream << "0" << Tpp_data_ini << TppMain;
-	string TppMain_file_path = TppMain_file_stream.str();
-
-	string TppMain_find = "TppMission.UpdateForMissionLoad";
-	ostringstream TppMain_replace_stream;
-	TppMain_replace_stream << "TppMission.UpdateForMissionLoad," << Tpp_mod << ".Update";
-	string TppMain_replace = TppMain_replace_stream.str();
-
-	if (tpp_search_and_replace(Tpp_mod, TppMain_file_path, TppMain_find, TppMain_replace))
+	for (vector<string>::const_iterator i = tpp_install_mod_names.begin(); i != tpp_install_mod_names.end(); ++i)
 	{
-		perror(nullptr);
-		return 1;
+		// Create lua file CityHash
+		ostringstream Tpp_cityhash_stream;
+		Tpp_cityhash_stream << "tpp/script/lib/" << *i;
+		string Tpp_cityhash_str = Tpp_cityhash_stream.str();
+		uint64_t seed0 = 0x9ae16a3b2f90404f;
+
+		byte byte_array[8];
+		size_t bufpos = 0;
+
+		for (size_t i = Tpp_cityhash_str.size() - 1, j = 0; i >= 0 && j < 8; i--, j++)
+			byte_array[j] = Tpp_cityhash_str[i];
+
+		uint64_t seed1 =
+			static_cast<uint64_t>(byte_array[0]) |
+			static_cast<uint64_t>(byte_array[1]) << 8 |
+			static_cast<uint64_t>(byte_array[2]) << 16 |
+			static_cast<uint64_t>(byte_array[3]) << 24 |
+			static_cast<uint64_t>(byte_array[4]) << 32 |
+			static_cast<uint64_t>(byte_array[5]) << 40 |
+			static_cast<uint64_t>(byte_array[6]) << 48 |
+			static_cast<uint64_t>(byte_array[7]) << 56;
+
+		uint64_t hash = CityHash64WithSeeds(Tpp_cityhash_str.c_str(), Tpp_cityhash_str.size(), seed0, seed1) & 0x3FFFFFFFFFFFF;
+		hash = (static_cast<uint64_t>(796) << static_cast<uint64_t>(51)) | hash;
+
+		ostringstream Tpp_inf_string_stream;
+		Tpp_inf_string_stream << std::hex << hash << "|0" << Tpp_data_ini << "\\Assets\\tpp\\script\\lib\\" << *i << ".lua key=0 version=2 compressed=0\n";
+		string Tpp_inf_string = Tpp_inf_string_stream.str();
+
+		Tpp_inf_out << Tpp_inf_string;
+
+		string Tpp = "\\Assets\\tpp\\script\\lib\\Tpp.lua";
+
+		ostringstream Tpp_file_stream;
+		Tpp_file_stream << "0" << Tpp_data_ini << Tpp;
+		string Tpp_file_path = Tpp_file_stream.str();
+
+		string Tpp_find = "\"/Assets/tpp/script/lib/TppMbFreeDemo.lua\"";
+		ostringstream Tpp_replace_stream;
+		Tpp_replace_stream << "\"/Assets/tpp/script/lib/TppMbFreeDemo.lua\",\"/Assets/tpp/script/lib/" << *i << ".lua\"";
+		string Tpp_replace = Tpp_replace_stream.str();
+
+		if (mI_search_and_replace(*i, Tpp_file_path, Tpp_find, Tpp_replace))
+		{
+			perror(nullptr);
+			return 1;
+		}
+
+		string TppMain = "\\Assets\\tpp\\script\\lib\\TppMain.lua";
+
+		ostringstream TppMain_file_stream;
+		TppMain_file_stream << "0" << Tpp_data_ini << TppMain;
+		string TppMain_file_path = TppMain_file_stream.str();
+
+		string TppMain_find = "TppMission.UpdateForMissionLoad";
+		ostringstream TppMain_replace_stream;
+		TppMain_replace_stream << "TppMission.UpdateForMissionLoad," << *i << ".Update";
+		string TppMain_replace = TppMain_replace_stream.str();
+
+		if (mI_search_and_replace(*i, TppMain_file_path, TppMain_find, TppMain_replace))
+		{
+			perror(nullptr);
+			return 1;
+		}
 	}
 
-	// Copy mod file.
-	ostringstream Tpp_mod_copy_stream;
-	Tpp_mod_copy_stream << "0" << Tpp_data_ini << "\\Assets\\tpp\\script\\lib\\" << Tpp_mod_lua;
-	string Tpp_mod_copy = Tpp_mod_copy_stream.str();
-
-	ifstream src(Tpp_mod_lua, ios::binary);
-	ofstream dst(Tpp_mod_copy, ios::binary);
-
-	dst << src.rdbuf();
-
-	bool Tpp_mod_copied_notfound = !ifstream(Tpp_mod_copy.c_str());
-	if (Tpp_mod_copied_notfound)
+	for (vector<string>::const_iterator i = tpp_install_mod_lua.begin(); i != tpp_install_mod_lua.end(); ++i)
 	{
-		cerr << Tpp_mod_copy << " was not found. Make sure you move all files and run this file in the\nC:\\Program Files (x86)\\Steam\\steamapps\\common\\MGS_TPP\\master\\0\\ folder." << "\n";
-		perror(nullptr);
-		return 1;
+		ostringstream Tpp_mod_copy_stream;
+		Tpp_mod_copy_stream << "0" << Tpp_data_ini << "\\Assets\\tpp\\script\\lib\\" << *i;
+		string Tpp_mod_copy = Tpp_mod_copy_stream.str();
+
+		ifstream src(*i, ios::binary);
+		ofstream dst(Tpp_mod_copy, ios::binary);
+
+		dst << src.rdbuf();
+
+		bool Tpp_mod_copied_notfound = !ifstream(Tpp_mod_copy.c_str());
+		if (Tpp_mod_copied_notfound)
+		{
+			cerr << Tpp_mod_copy << " was not found. Make sure you move all files and run this file in the\nC:\\Program Files (x86)\\Steam\\steamapps\\common\\MGS_TPP\\master\\0\\ folder." << "\n";
+			perror(nullptr);
+			return 1;
+		}
+
+		Tpp_mod_copy_stream.str(string());
+		Tpp_mod_copy_stream.clear();
 	}
 
 	// Repack
@@ -331,9 +450,9 @@ int main()
 
 	// Finish.
 	cout << "=======================\n";
-	cout << Tpp_mod << " installed.\n";
+	cout << Tpp_main_mod_name << " installed.\n";
 	cout << "=======================\n";
-	cout << "- Original " << Tpp_data << " has been backed up to backup-" << Tpp_mod << " folder\n";
+	cout << "- Original " << Tpp_data << " has been backed up to backup-" << Tpp_main_mod_name << " folder\n";
 	cout << "- To Uninstall mod, restore the " << Tpp_data << " from the backup folder\n";
 	cout << "=======================\n";
 
